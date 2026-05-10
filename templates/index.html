@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор постов для товара</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="container">
+        <header class="page-header">
+            <h1>Генератор постов</h1>
+            <p>Вставьте ссылку на товар — AI напишет пост за вас</p>
+        </header>
+
+        <form method="POST" class="post-form">
+            <div class="form-group">
+                <label for="product_url">
+                    Ссылка на товар <span class="required">*</span>
+                </label>
+                <input
+                    type="url"
+                    id="product_url"
+                    name="product_url"
+                    placeholder="https://example.com/product/..."
+                    value="{{ submitted_url }}"
+                    required
+                >
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label for="mood">Настроение</label>
+                    <select id="mood" name="mood">
+                        <option value="enthusiastic" {% if config.mood == 'enthusiastic' %}selected{% endif %}>Восторженный 😃</option>
+                        <option value="calm" {% if config.mood == 'calm' %}selected{% endif %}>Спокойный 😌</option>
+                        <option value="humorous" {% if config.mood == 'humorous' %}selected{% endif %}>С юмором 😄</option>
+                        <option value="professional" {% if config.mood == 'professional' %}selected{% endif %}>Деловой 💼</option>
+                        <option value="creative" {% if config.mood == 'creative' %}selected{% endif %}>Креативный 🎨</option>
+                    </select>
+                </div>
+
+                <div class="form-group half">
+                    <label for="length">Длина</label>
+                    <select id="length" name="length">
+                        <option value="short" {% if config.length == 'short' %}selected{% endif %}>Короткий</option>
+                        <option value="medium" {% if config.length == 'medium' %}selected{% endif %}>Средний</option>
+                        <option value="long" {% if config.length == 'long' %}selected{% endif %}>Развёрнутый</option>
+                    </select>
+                </div>
+            </div>
+
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+
+            <button type="submit" class="btn-generate" id="generateBtn">
+                Сформировать пост
+            </button>
+        </form>
+
+        <div class="loading-section" id="loadingSection" style="display: none;">
+            <div class="spinner"></div>
+            <p>AI генерирует пост...</p>
+        </div>
+
+        {% if generated_post %}
+        <div class="result-section">
+            <div class="result-header">
+                <h2>Готовый пост</h2>
+                <div class="result-actions">
+                    <button class="btn-copy" onclick="copyPost()">Скопировать</button>
+                    <button class="btn-fav" onclick="addToFavorites()">В избранное</button>
+                    <button class="btn-publish" onclick="publishNow()">Опубликовать</button>
+                    <button class="btn-schedule" onclick="showScheduleModal()">Отложить</button>
+                </div>
+            </div>
+
+            <!-- Режим просмотра поста -->
+            <div class="post-display" id="postDisplay">
+                <div class="post-content" id="postContent">
+                    {{ generated_post | replace('\n', '<br>') | safe }}
+                </div>
+                <button class="btn-edit" onclick="startEditResult()" title="Редактировать">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Режим редактирования поста -->
+            <div class="post-edit" id="postEdit" style="display: none;">
+                <textarea id="postEditArea" rows="10"></textarea>
+                <div class="edit-actions">
+                    <button class="btn-cancel-edit" onclick="cancelEditResult()">Отмена</button>
+                    <button class="btn-save-edit" onclick="saveEditResult()">Сохранить</button>
+                </div>
+            </div>
+
+            <div class="copy-success" id="copySuccess">Пост скопирован!</div>
+            <div class="copy-success" id="publishSuccess" style="background: #eff6ff; border-color: #bfdbfe; color: #2563eb;">Пост опубликован!</div>
+        </div>
+        {% endif %}
+
+        <!-- Избранное -->
+        <div class="section-block" id="favoritesSection">
+            <div class="section-header">
+                <h2>Избранное <span class="badge" id="favCount">{{ favorites|length }}</span></h2>
+            </div>
+            <div id="favoritesList">
+                {% for fav in favorites %}
+                <div class="fav-card" data-id="{{ fav.id }}">
+                    <div class="fav-display" id="favDisplay-{{ fav.id }}">
+                        <div class="fav-text">{{ fav.text | replace('\n', '<br>') | safe }}</div>
+                    </div>
+                    <div class="fav-edit-area" id="favEdit-{{ fav.id }}" style="display: none;">
+                        <textarea class="fav-edit-textarea" rows="6">{{ fav.text }}</textarea>
+                        <div class="edit-actions">
+                            <button class="btn-cancel-edit" onclick="cancelEditFav('{{ fav.id }}')">Отмена</button>
+                            <button class="btn-save-edit" onclick="saveEditFav('{{ fav.id }}')">Сохранить</button>
+                        </div>
+                    </div>
+                    <div class="fav-meta">
+                        <span>{{ fav.date }}</span>
+                        {% if fav.mood %}<span class="fav-mood">{{ fav.mood }}</span>{% endif %}
+                        <button class="btn-edit-inline" onclick="startEditFav('{{ fav.id }}')" title="Редактировать">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
+                        <button class="btn-use-fav" onclick="useFavorite('{{ fav.id }}')">Использовать</button>
+                        <button class="btn-delete" onclick="deleteFavorite('{{ fav.id }}')">Удалить</button>
+                    </div>
+                </div>
+                {% else %}
+                <p class="empty-state">Избранных постов пока нет</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Отложенные посты -->
+        <div class="section-block" id="scheduledSection">
+            <div class="section-header">
+                <h2>Отложенные посты <span class="badge badge-blue" id="schedCount">{{ scheduled|length }}</span></h2>
+            </div>
+            <div id="scheduledList">
+                {% for post in scheduled %}
+                <div class="sched-card" data-id="{{ post.id }}">
+                    <div class="sched-display" id="schedDisplay-{{ post.id }}">
+                        <div class="sched-text">{{ post.text | replace('\n', '<br>') | safe }}</div>
+                    </div>
+                    <div class="sched-edit-area" id="schedEdit-{{ post.id }}" style="display: none;">
+                        <textarea class="sched-edit-textarea" rows="6">{{ post.text }}</textarea>
+                        <div class="edit-actions">
+                            <button class="btn-cancel-edit" onclick="cancelEditSched('{{ post.id }}')">Отмена</button>
+                            <button class="btn-save-edit" onclick="saveEditSched('{{ post.id }}')">Сохранить</button>
+                        </div>
+                    </div>
+                    <div class="sched-meta">
+                        <span class="sched-date">📅 {{ post.schedule_date | replace('T', ' ') }}</span>
+                        <span class="sched-status {% if post.published %}status-done{% endif %}">
+                            {% if post.published %}Опубликовано ✓{% else %}Ожидает ⏳{% endif %}
+                        </span>
+                        <button class="btn-edit-inline" onclick="startEditSched('{{ post.id }}')" title="Редактировать">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                            </svg>
+                        </button>
+                        <button class="btn-delete" onclick="deleteScheduled('{{ post.id }}')">Удалить</button>
+                    </div>
+                </div>
+                {% else %}
+                <p class="empty-state">Отложенных постов пока нет</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для отложенной публикации -->
+    <div class="modal-overlay" id="scheduleModal">
+        <div class="modal">
+            <h3>Отложенная публикация</h3>
+            <div class="form-group">
+                <label for="scheduleDate">Дата и время</label>
+                <input type="datetime-local" id="scheduleDate" required>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeScheduleModal()">Отмена</button>
+                <button class="btn-confirm" onclick="schedulePost()">Запланировать</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var vkConfigured = {{ 'true' if vk_configured else 'false' }};
+    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
